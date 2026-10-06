@@ -14,7 +14,7 @@ export const PlayerState = schema(
     y: t.float32(),
     z: t.float32(),
     ry: t.float32(),
-    /** Animation flags: 1 grounded, 2 grinding, 4 treadmill, 8 pushing. */
+    /** Animation flags: 1 grounded, 2 grinding, 4 treadmill, 8 pushing, 16 braking. */
     a: t.uint8(),
     /** Trick counter; changes trigger a kickflip/shuvit on other screens. */
     f: t.uint8(),
