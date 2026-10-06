@@ -42,7 +42,20 @@ function scheduleDevWrite() {
   }, 1000)
 }
 
-export async function connectDb() {
+/**
+ * Resolves once the database is connected (or has definitively failed over to
+ * memory). The server starts listening WITHOUT waiting for this, so health
+ * checks pass at once; anything that needs saved data awaits it first.
+ */
+let ready = Promise.resolve()
+
+/** Starts connecting in the background and returns the readiness promise. */
+export function connectDb() {
+  ready = connect()
+  return ready
+}
+
+async function connect() {
   const uri = process.env.MONGODB_URI
   if (!uri) {
     if (process.env.NODE_ENV === 'production') {
@@ -54,15 +67,16 @@ export async function connectDb() {
     return
   }
   try {
-    const client = new MongoClient(uri, { maxPoolSize: 10, serverSelectionTimeoutMS: 8000 })
+    const client = new MongoClient(uri, { maxPoolSize: 10, serverSelectionTimeoutMS: 5000 })
     await client.connect()
     collection = client.db().collection('players')
-    await Promise.all([
+    console.log('[db] connected to MongoDB')
+    // Indexes only speed up the leaderboards: build them in the background.
+    Promise.all([
       collection.createIndex({ 'stats.totalSpeed': -1 }),
       collection.createIndex({ 'stats.totalWins': -1 }),
       collection.createIndex({ rebirths: -1 }),
-    ])
-    console.log('[db] connected to MongoDB')
+    ]).catch((err) => console.error('[db] index build failed:', err.message))
   } catch (err) {
     // Keep the server up; progress is held in memory until Mongo is reachable.
     console.error('[db] MongoDB unavailable, falling back to memory:', err.message)
@@ -71,6 +85,7 @@ export async function connectDb() {
 }
 
 export async function loadProfile(id) {
+  await ready
   if (!collection) return memory.get(id) ? structuredClone(memory.get(id)) : null
   try {
     return await collection.findOne({ _id: id })
@@ -81,6 +96,7 @@ export async function loadProfile(id) {
 }
 
 export async function saveProfile(profile) {
+  await ready
   const doc = { ...profile, updatedAt: Date.now() }
   memory.set(doc._id, structuredClone(doc))
   if (!collection) return scheduleDevWrite()
@@ -93,6 +109,7 @@ export async function saveProfile(profile) {
 }
 
 export async function deleteProfile(id) {
+  await ready
   memory.delete(id)
   if (!collection) return scheduleDevWrite()
   try {
@@ -116,6 +133,7 @@ const pick = (doc, path) => path.split('.').reduce((o, k) => (o ? o[k] : 0), doc
 
 export async function getLeaderboards() {
   if (Date.now() - lbCache.at < 45_000) return lbCache.data
+  await ready
   const data = {}
   for (const [kind, field] of Object.entries(LB_FIELDS)) {
     let rows = []
