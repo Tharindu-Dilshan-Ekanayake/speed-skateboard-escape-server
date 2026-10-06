@@ -1,20 +1,26 @@
 {
-  "name": "server",
+  "name": "speed-skateboard-escape-server",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "+1 Speed Skateboard Escape - Colyseus game server",
+  "main": "src/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "check": "node scripts/check-layout.js"
   },
-  "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
-    "cors": "^2.8.6",
+    "@colyseus/core": "^0.18.18",
+    "@colyseus/schema": "^5.0.36",
+    "@colyseus/ws-transport": "^0.18.4",
     "express": "^5.2.1",
-    "nodemon": "^3.1.14"
-  }
+    "jsonwebtoken": "^9.0.3",
+    "mongodb": "^7.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "private": true
 }
