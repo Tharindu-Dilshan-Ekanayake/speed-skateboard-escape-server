@@ -12,7 +12,12 @@ export const ROOM_NAME = 'skate'
 export const MAX_PLAYERS = 8
 
 export const MAX_LEVEL = 25
-export const STAGES_PER_WORLD = 10
+/** Sunny Skatepark has five bonus stages; Neon City keeps its ten-stage run. */
+export const STAGE_COUNTS = [15, 10]
+export const STAGE_OFFSETS = [0, STAGE_COUNTS[0]]
+export const STAGES_PER_WORLD = Math.max(...STAGE_COUNTS)
+export const stageCount = (world) => STAGE_COUNTS[world] || 0
+export const stageNumber = (world, stage) => (STAGE_OFFSETS[world] || 0) + stage
 export const WORLD_COUNT = 2
 /** Rebirths needed to enter each world. */
 export const WORLD_UNLOCK_REBIRTHS = [0, 3]
@@ -159,21 +164,44 @@ export const charmRefreshCost = (rebirths) => 25 * (rebirths + 1)
 
 /** Every stage is its own little adventure. */
 export const STAGE_NAMES = [
-  ['Rookie Plaza', 'Stair Street', "Granny's Block", 'Rail Yard', 'Bowl Bash', 'Construction Chaos', 'Mega Ramp', 'Floating Park', 'Pipe Dream', 'The Great Escape'],
+  [
+    'Rookie Plaza',
+    'Stair Street',
+    "Granny's Block",
+    'Rail Yard',
+    'Bowl Bash',
+    'Construction Chaos',
+    'Mega Ramp',
+    'Floating Park',
+    'Pipe Dream',
+    'The Great Escape',
+    'Riverbend Run',
+    'Crumbling Bridges',
+    'Canyon Hills',
+    'Trick Garden',
+    'Sunset Showdown',
+  ],
   ['Neon Alley', 'Laser Stairs', 'Arcade Bowl', 'Hover Rails', 'Night Granny', 'Glitch Factory', 'Sky Drop', 'Data Stream', 'Cyber Pipe', 'Final Glitch'],
 ]
 
 export const RECOMMENDED_LEVEL = [
-  [0, 2, 4, 6, 9, 12, 15, 18, 21, 24],
+  [0, 2, 4, 6, 9, 12, 15, 18, 21, 24, 25, 25, 25, 25, 25],
   [2, 5, 8, 11, 14, 17, 19, 21, 23, 25],
 ]
+/**
+ * Teleporting to an unlocked stage costs a small fee in Wins: the same as one
+ * free win pad on that stage, so it never costs more than a run would earn.
+ * Lobby spots are always free.
+ */
+export const teleportCost = (w, s) => Math.max(1, STAGE_WINS[w][s - 1])
+
 /** Premium (right-hand) finish side: unlock once per stage with Wins. */
 export const PREMIUM_PAD_MULT = 3
 export const premiumPadCost = (w, s) => STAGE_WINS[w][s - 1] * 25
 export const premiumTreadmillCost = (w, s) => STAGE_WINS[w][s - 1] * 15
 
 export const STAGE_WINS = [
-  [1, 2, 4, 7, 12, 20, 35, 60, 100, 160],
+  [1, 2, 4, 7, 12, 20, 35, 60, 100, 160, 250, 400, 650, 1000, 1600],
   [400, 700, 1100, 1700, 2600, 4000, 6000, 9000, 14000, 22000],
 ]
 

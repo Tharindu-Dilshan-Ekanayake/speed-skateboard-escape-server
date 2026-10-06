@@ -29,16 +29,15 @@ import { PlayerState, SkateState } from '../schema.js'
 import {
   MAX_PLAYERS,
   PLAYTIME_GIFTS,
-  STAGES_PER_WORLD,
-  MAX_LEVEL,
+  stageCount,
+  stageNumber,
   TICK_MS,
-  WORLD_COUNT,
   boardById,
   moveSpeedFor,
   rebirthSpeedMult,
   rebirthWinsMult,
   scaleReward,
-  speedForLevel,
+  teleportCost,
   squadBoost,
   trailById,
 } from '../shared/config.js'
@@ -50,20 +49,6 @@ const ME_EVERY_MS = 10_000
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v)
 
-/**
- * Developer tools (stage jumping, setting a level). Enabled everywhere except the
- * prod channel, plus for any account listed in DEV_ACCOUNTS (comma-separated
- * names or ids). Set DEV_TOOLS=off to disable them completely.
- */
-const DEV_ACCOUNTS = (process.env.DEV_ACCOUNTS || '')
-  .split(',')
-  .map((v) => v.trim().toLowerCase())
-  .filter(Boolean)
-function devAllowed(s) {
-  if (process.env.DEV_TOOLS === 'off') return false
-  if (process.env.BLOXITY_CHANNEL !== 'prod') return true
-  return DEV_ACCOUNTS.includes(s.pid.toLowerCase()) || DEV_ACCOUNTS.includes(String(s.profile.name).toLowerCase())
-}
 
 /**
  * One lobby of up to 8 riders. Colyseus' joinOrCreate fills a room to
@@ -223,7 +208,6 @@ export class SkateRoom extends Room {
     const view = privateView(s.profile)
     view.session = { playSeconds: Math.floor(s.playSeconds), gifts: [...s.gifts] }
     view.now = Date.now()
-    view.dev = devAllowed(s)
     s.client.send('me', view)
   }
 
@@ -275,9 +259,11 @@ export class SkateRoom extends Room {
 
     on('respawn', (s) => {
       const layout = this.layoutOf(s)
-      const st = s.checkpoint > 0 ? layout.stages[s.checkpoint - 1] : null
-      if (st) s.armed.add(st.stage)
-      this.teleport(s, st ? st.spawn : layout.spawn, Math.PI)
+      // Falling or hitting an obstacle in a stage always sends the rider back
+      // to the current world's lobby; a fresh run starts from there.
+      s.checkpoint = 0
+      s.armed.clear()
+      this.teleport(s, this.lobbySpawn(s.profile.world), Math.PI)
     })
 
     on('tp', (s, m) => {
@@ -289,6 +275,11 @@ export class SkateRoom extends Room {
       if (m.to === 'stage') {
         const stage = Math.floor(Number(m.stage))
         if (!(stage >= 1 && stage <= p.maxStage[p.world])) return this.result(s, 'tp', 'locked')
+        const cost = teleportCost(p.world, stage)
+        if (p.wins < cost) return this.result(s, 'tp', 'wins')
+        p.wins -= cost
+        s.dirty = true
+        this.afterChange(s)
         s.checkpoint = stage
         s.armed.add(stage)
         return this.teleport(s, layout.stages[stage - 1].spawn, Math.PI)
@@ -309,38 +300,6 @@ export class SkateRoom extends Room {
     })
 
     on('claim', (s) => this.onClaim(s))
-
-    // ---- developer tools ----
-    on('devtp', (s, m) => {
-      if (!devAllowed(s)) return
-      const w = Math.floor(Number(m.world))
-      const stage = Math.floor(Number(m.stage))
-      if (!(w >= 0 && w < WORLD_COUNT) || !(stage >= 0 && stage <= STAGES_PER_WORLD)) return
-      const p = s.profile
-      p.world = w
-      if (p.maxStage[w] < 1) p.maxStage[w] = 1
-      const layout = this.worlds[w]
-      s.checkpoint = stage
-      s.armed.clear()
-      if (stage > 0) s.armed.add(stage)
-      this.teleport(s, stage > 0 ? layout.stages[stage - 1].spawn : layout.spawn, Math.PI)
-      this.afterChange(s)
-    })
-    on('devwins', (s, m) => {
-      if (!devAllowed(s)) return
-      const n = Math.max(0, Math.min(1e12, Number(m.n) || 0))
-      s.profile.wins += n
-      s.dirty = true
-      this.afterChange(s)
-    })
-    on('devlevel', (s, m) => {
-      if (!devAllowed(s)) return
-      const level = Math.max(0, Math.min(MAX_LEVEL, Math.floor(Number(m.level))))
-      if (!Number.isFinite(level)) return
-      s.profile.speed = speedForLevel(level, s.profile.rebirths)
-      s.dirty = true
-      this.afterChange(s)
-    })
 
     on('buyBoard', (s, m) => this.result(s, 'buyBoard', buyBoard(s.profile, Math.floor(Number(m.id))), { id: m.id }))
     on('equipBoard', (s, m) => this.result(s, 'equipBoard', equipBoard(s.profile, Math.floor(Number(m.id))), { id: m.id }))
@@ -391,8 +350,9 @@ export class SkateRoom extends Room {
     // Distance budget: refills at the legal top speed (+ slack for slopes, rails
     // and network jitter), capped at ~3 s worth so lag bursts are absorbed.
     const now = Date.now()
-    const vmax = moveSpeedFor(levelOf(p), p.board) * 1.5 + 3
-    s.budget = Math.min(vmax * 3 + 6, s.budget + vmax * ((now - s.lastBudgetAt) / 1000))
+    // 1.6x covers downhill rolls and rails; +18 m/s covers riding on a moving platform.
+    const vmax = moveSpeedFor(levelOf(p), p.board) * 1.6 + 18
+    s.budget = Math.min(vmax * 4 + 6, s.budget + vmax * ((now - s.lastBudgetAt) / 1000))
     s.lastBudgetAt = now
     const dist = Math.hypot(x - s.pos[0], z - s.pos[2])
     if (dist > s.budget) {
@@ -421,11 +381,11 @@ export class SkateRoom extends Room {
         s.armed.add(st.stage)
         if (st.stage > p.maxStage[p.world]) {
           p.maxStage[p.world] = st.stage
-          s.client.send('fx', { k: 'unlock', stage: st.stage + p.world * STAGES_PER_WORLD })
+          s.client.send('fx', { k: 'unlock', stage: stageNumber(p.world, st.stage) })
           s.dirty = true
         }
         if (st.stage > 1) {
-          const beaten = p.world * STAGES_PER_WORLD + st.stage - 1
+          const beaten = stageNumber(p.world, st.stage) - 1
           if (beaten > p.stats.bestStage) p.stats.bestStage = beaten
         }
         this.afterChange(s)
@@ -453,7 +413,7 @@ export class SkateRoom extends Room {
     p.wins += amount
     p.stats.totalWins += amount
     p.stats.claims += 1
-    const global = p.world * STAGES_PER_WORLD + pad.stage
+    const global = stageNumber(p.world, pad.stage)
     if (global > p.stats.bestStage) p.stats.bestStage = global
     questBump(p, 'claims', 1)
     s.dirty = true

@@ -10,7 +10,7 @@ import {
   MAX_LEVEL,
   RARITIES,
   SPEED_PACKS,
-  STAGES_PER_WORLD,
+  stageCount,
   TRAILS,
   WORLD_COUNT,
   glowById,
@@ -76,7 +76,7 @@ export function normalizeProfile(doc, id, name) {
   p.world = Math.min(WORLD_COUNT - 1, Math.max(0, Math.floor(num(p.world))))
   if (p.rebirths < WORLD_UNLOCK_REBIRTHS[p.world]) p.world = 0
   p.maxStage = Array.from({ length: WORLD_COUNT }, (_, w) =>
-    Math.min(STAGES_PER_WORLD, Math.max(w === 0 ? 1 : 0, Math.floor(num(doc.maxStage?.[w], w === 0 ? 1 : 0)))),
+    Math.min(stageCount(w), Math.max(w === 0 ? 1 : 0, Math.floor(num(doc.maxStage?.[w], w === 0 ? 1 : 0)))),
   )
   p.boards = Array.isArray(p.boards) ? [...new Set([1, ...p.boards.filter((b) => BOARDS.some((x) => x.id === b))])] : [1]
   if (!p.boards.includes(p.board)) p.board = 1
@@ -159,6 +159,9 @@ export function buyBoard(p, id) {
     return 'equipped'
   }
   if (p.rebirths < WORLD_UNLOCK_REBIRTHS[b.world]) return 'locked'
+  // Boards unlock in order: you must own the previous one first.
+  const prev = BOARDS[BOARDS.findIndex((x) => x.id === id) - 1]
+  if (prev && !p.boards.includes(prev.id)) return 'order'
   if (!spend(p, b.cost)) return 'wins'
   p.boards.push(id)
   p.board = id
