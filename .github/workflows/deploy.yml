@@ -1,0 +1,51 @@
+# Builds the server image, pushes it to this repo's GitHub Container Registry and
+# tells Bloxity Legion to roll it out.  main -> prod channel, dev -> dev channel.
+#
+# One-time setup:
+#   1. Repo -> Settings -> Secrets -> Actions: add LEGION_DEPLOY_TOKEN.
+#   2. After the first run, make the GHCR package public
+#      (repo -> Packages -> speed-skateboard-escape-server -> Package settings -> Change visibility).
+name: Deploy server
+
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  GAME_ID: speed-skateboard-escape
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick channel and image name
+        run: |
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then echo "CHANNEL=prod" >> "$GITHUB_ENV"; else echo "CHANNEL=dev" >> "$GITHUB_ENV"; fi
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "IMAGE=ghcr.io/${OWNER}/${GAME_ID}-server" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push
+        run: |
+          TAG="${IMAGE}:${CHANNEL}-${GITHUB_SHA}"
+          docker build -t "$TAG" .
+          docker push "$TAG"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Deploy to Bloxity Legion
+        env:
+          LEGION_DEPLOY_TOKEN: ${{ secrets.LEGION_DEPLOY_TOKEN }}
+        run: |
+          curl -sf -X POST "https://legion.bloxity.io/v1/apps/${GAME_ID}/deploy" \
+            -H "Authorization: Bearer ${LEGION_DEPLOY_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"channel\":\"${CHANNEL}\",\"image\":\"${TAG}\",\"version\":\"${GITHUB_SHA}\",\"seatCap\":8,\"maxReplicas\":10}"
