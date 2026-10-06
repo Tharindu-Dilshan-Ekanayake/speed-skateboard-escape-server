@@ -138,6 +138,8 @@ const gameServer = new Server({
 
 gameServer.define(ROOM_NAME, SkateRoom)
 
-await connectDb()
+// Connect to the database in the background and open the port straight away, so
+// the platform's health check passes immediately instead of after Mongo answers.
+connectDb()
 await gameServer.listen(PORT, '0.0.0.0')
 console.log(`[server] listening on :${PORT} (${process.env.BLOXITY_CHANNEL || 'local'} ${process.env.POD_NAME || ''})`)
